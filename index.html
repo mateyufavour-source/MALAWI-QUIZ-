@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Malawi Quiz - LIVE</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Outfit',sans-serif}
+body{background:#0f0f14;color:#fff;min-height:100vh}
+.header{padding:16px 20px;display:flex;justify-content:space-between;align-items:center;background:#1a1a24;border-bottom:1px solid #2a2a3a;position:sticky;top:0}
+.logo{font-weight:800;font-size:20px;color:#16a34a}
+.nav{display:flex;gap:8px}
+.nav button{padding:8px 14px;border-radius:20px;border:1px solid #333;background:#12121a;color:#fff;cursor:pointer;font-size:13px}
+.nav button.active{background:#16a34a;border-color:#16a34a}
+.card{max-width:600px;margin:24px auto;background:#1e1e2e;border-radius:20px;padding:22px;border:1px solid #2d2d44}
+input,select,textarea{width:100%;padding:13px;border-radius:12px;border:1px solid #333;background:#12121a;color:#fff;margin:7px 0;font-size:15px}
+.btn{width:100%;padding:14px;border-radius:12px;border:none;background:#16a34a;color:#fff;font-weight:700;font-size:15px;cursor:pointer;margin-top:10px}
+.btn-sec{background:#2a2a40}
+.pill{display:inline-block;padding:5px 10px;border-radius:20px;background:#2a2a40;font-size:11px;margin:3px}
+.quiz-opt{display:block;padding:13px;border:1px solid #333;border-radius:12px;margin:7px 0;cursor:pointer;background:#12121a}
+.quiz-opt.correct{background:#1a3a2a;border-color:#22c55e}
+.quiz-opt.wrong{background:#3a1a1a;border-color:#ef4444}
+.hidden{display:none}
+.q-item{background:#12121a;border:1px solid #2a2a3a;padding:12px;border-radius:12px;margin:8px 0;display:flex;justify-content:space-between;align-items:center}
+.small{opacity:0.6;font-size:12px}
+</style>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, getDocs, addDoc, doc, deleteDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+const firebaseConfig = {
+  apiKey: "REPLACE_ME",
+  authDomain: "REPLACE_ME.firebaseapp.com",
+  projectId: "REPLACE_ME",
+  storageBucket: "REPLACE_ME.appspot.com",
+  messagingSenderId: "REPLACE_ME",
+  appId: "REPLACE_ME"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+window.db=db; window.fs={collection,getDocs,addDoc,doc,deleteDoc,query,orderBy,limit};
+window.firebaseReady=true;
+</script>
+</head>
+<body>
+<div class="header">
+<div class="logo">🇲🇼 Malawi Quiz LIVE</div>
+<div class="nav">
+<button id="navStudent" class="active" onclick="switchView('student')">Student</button>
+<button id="navAdmin" onclick="switchView('admin')">Admin</button>
+</div>
+</div>
+
+<div id="studentView">
+<div id="registerView" class="card">
+<h2>Join - Form 1 to 4</h2>
+<input id="sName" placeholder="Full Name">
+<input id="sSchool" placeholder="School">
+<select id="sForm"><option value="">Select Class</option><option>Form 1</option><option>Form 2</option><option>Form 3</option><option>Form 4</option></select>
+<button class="btn" onclick="studentRegister()">Start Quiz</button>
+<div style="margin-top:14px"><h3>🏆 Live Top 10</h3><div id="leaderList" class="small">Loading...</div></div>
+</div>
+<div id="quizView" class="card hidden">
+<div style="display:flex;justify-content:space-between"><span class="pill" id="sClassPill"></span><span class="pill" id="sPoints">0 pts</span></div>
+<h2 id="qText" style="margin:16px 0"></h2>
+<div id="qOpts"></div>
+<button class="btn" id="nextBtn" onclick="nextQ()" disabled>Next</button>
+</div>
+<div id="resultView" class="card hidden"><h2>Result</h2><p id="resText"></p><button class="btn" onclick="restartQuiz()">Play Again</button></div>
+</div>
+
+<div id="adminView" class="hidden">
+<div id="adminLogin" class="card"><h2>Admin</h2><input id="adminPass" type="password" placeholder="admin123"><button class="btn" onclick="adminLogin()">Login</button></div>
+<div id="adminPanel" class="card hidden">
+<h2>Admin Panel</h2>
+<select id="aForm"><option>Form 1</option><option>Form 2</option><option>Form 3</option><option>Form 4</option></select>
+<button class="btn btn-sec" onclick="loadQuestions()">Load</button>
+<textarea id="aQ" placeholder="Question"></textarea>
+<input id="a1" placeholder="A"><input id="a2" placeholder="B"><input id="a3" placeholder="C"><input id="a4" placeholder="D">
+<select id="aCorrect"><option value="0">Correct A</option><option value="1">Correct B</option><option value="2">Correct C</option><option value="3">Correct D</option></select>
+<button class="btn" onclick="addQuestionFB()">Add to Firebase</button>
+<div id="qList"></div>
+</div>
+</div>
+
+<script>
+let user=null,pts=0,cur=0,sc=0,answered=false,currentQs=[],adminFilter="Form 1";
+function switchView(v){document.getElementById('studentView').classList.toggle('hidden',v!=='student');document.getElementById('adminView').classList.toggle('hidden',v!=='admin');document.getElementById('navStudent').classList.toggle('active',v==='student');document.getElementById('navAdmin').classList.toggle('active',v==='admin');}
+async function studentRegister(){
+ const name=document.getElementById('sName').value.trim();const school=document.getElementById('sSchool').value.trim();const form=document.getElementById('sForm').value;
+ if(!name||!school||!form){alert('Fill all');return}
+ user={name,school,form}; pts=0;cur=0;sc=0;
+ const col=window.fs.collection(window.db,"questions_"+form.replace(' ',''));
+ const snap=await window.fs.getDocs(col); currentQs=[]; snap.forEach(d=>currentQs.push({id:d.id,...d.data()}));
+ if(currentQs.length===0){alert('No questions for '+form);return}
+ document.getElementById('registerView').classList.add('hidden');document.getElementById('quizView').classList.remove('hidden');
+ document.getElementById('sClassPill').innerText=form+' • '+school; renderQ(); loadLeaderboard();
+}
+function renderQ(){
+ const q=currentQs[cur]; answered=false; document.getElementById('qText').innerText=`Q${cur+1}/${currentQs.length}: ${q.q}`;
+ document.getElementById('sPoints').innerText=pts+' pts'; document.getElementById('nextBtn').disabled=true;
+ const div=document.getElementById('qOpts'); div.innerHTML='';
+ q.opts.forEach((o,i)=>{const d=document.createElement('div');d.className='quiz-opt';d.innerText=o;d.onclick=()=>{if(answered)return;answered=true;const all=document.querySelectorAll('.quiz-opt');all.forEach((el,idx)=>{if(idx===q.a)el.classList.add('correct');if(idx===i&&i!==q.a)el.classList.add('wrong');});if(i===q.a){sc++;pts+=5;}document.getElementById('nextBtn').disabled=false;};div.appendChild(d);});
+}
+async function nextQ(){
+ if(cur<currentQs.length-1){cur++;renderQ();}else{
+  document.getElementById('quizView').classList.add('hidden');document.getElementById('resultView').classList.remove('hidden');
+  document.getElementById('resText').innerText=`${user.name} scored ${sc}/${currentQs.length} - ${pts} pts`;
+  await window.fs.addDoc(window.fs.collection(window.db,"leaderboard"),{name:user.name,school:user.school,form:user.form,points:pts,score:sc,date:new Date()});
+  loadLeaderboard();
+ }
+}
+function restartQuiz(){cur=0;sc=0;pts=0;document.getElementById('resultView').classList.add('hidden');document.getElementById('registerView').classList.remove('hidden');}
+function adminLogin(){if(document.getElementById('adminPass').value==='admin123'){document.getElementById('adminLogin').classList.add('hidden');document.getElementById('adminPanel').classList.remove('hidden');loadQuestions();}else alert('Wrong');}
+async function loadQuestions(){
+ adminFilter=document.getElementById('aForm').value;
+ const col=window.fs.collection(window.db,"questions_"+adminFilter.replace(' ',''));
+ const snap=await window.fs.getDocs(col);
+ let html=`<h3>${adminFilter} - ${snap.size}</h3>`; snap.forEach(docSnap=>{const q=docSnap.data(); html+=`<div class="q-item"><div><b>${q.q}</b><br><span class="small">${q.opts.join(' | ')}</span></div><button onclick="delQ('${docSnap.id}')" style="background:#ef4444;border:none;color:#fff;padding:6px 10px;border-radius:8px">Del</button></div>`;});
+ document.getElementById('qList').innerHTML=html;
+}
+async function addQuestionFB(){
+ const form=document.getElementById('aForm').value;const q=document.getElementById('aQ').value.trim();
+ const o1=document.getElementById('a1').value.trim(),o2=document.getElementById('a2').value.trim(),o3=document.getElementById('a3').value.trim(),o4=document.getElementById('a4').value.trim();
+ const a=parseInt(document.getElementById('aCorrect').value);
+ if(!q||!o1||!o2||!o3||!o4){alert('Fill all');return}
+ await window.fs.addDoc(window.fs.collection(window.db,"questions_"+form.replace(' ','')),{q,opts:[o1,o2,o3,o4],a});
+ document.getElementById('aQ').value='';document.getElementById('a1').value='';document.getElementById('a2').value='';document.getElementById('a3').value='';document.getElementById('a4').value='';loadQuestions();
+}
+async function delQ(id){if(confirm('Delete?')){await window.fs.deleteDoc(window.fs.doc(window.db,"questions_"+adminFilter.replace(' ',''),id));loadQuestions();}}
+async function loadLeaderboard(){
+ const q=window.fs.query(window.fs.collection(window.db,"leaderboard"),window.fs.orderBy("points","desc"),window.fs.limit(10));
+ const snap=await window.fs.getDocs(q); let html=""; let r=1; snap.forEach(d=>{const u=d.data(); html+=`${r}. ${u.name} (${u.form}) - ${u.points} pts<br>`;r++;});
+ document.getElementById('leaderList').innerHTML=html||'No scores';
+}
+setTimeout(()=>{if(window.firebaseReady)loadLeaderboard();},1500);
+</script>
+</body>
+</html>
